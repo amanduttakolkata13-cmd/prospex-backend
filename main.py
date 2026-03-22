@@ -133,7 +133,7 @@ async def train(
                 avg = "binary" if len(np.unique(y)) == 2 else "macro"  # FIXED: no trailing spaces
                 result = {
                     "name": name,
-                    "acc": round(float(accuracy_score(y_test, y_pred)), 4),
+                    "accuracy": round(float(accuracy_score(y_test, y_pred)), 4),
                     "precision": round(float(precision_score(y_test, y_pred, average=avg, zero_division=0)), 4),
                     "recall": round(float(recall_score(y_test, y_pred, average=avg, zero_division=0)), 4),
                     "f1": round(float(f1_score(y_test, y_pred, average=avg, zero_division=0)), 4),
