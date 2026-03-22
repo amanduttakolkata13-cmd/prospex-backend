@@ -19,7 +19,7 @@ from sklearn.metrics import (
 
 app = FastAPI(title="Prospex ML API")
 
-# Configure CORS to allow your Netlify domain and local development
+# Configure CORS to any source
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
