@@ -1,10 +1,10 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import pandas as pd
 import numpy as np
-import io, time
+import io
+import time
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, RandomForestRegressor, GradientBoostingRegressor
 from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.linear_model import LogisticRegression, LinearRegression
@@ -24,19 +24,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 def preprocess(df, target, features):
     """Preprocess dataframe: drop NaN, encode categoricals, scale features"""
     df = df.copy()
     df = df.dropna()
+
     for col in df.columns:
         if df[col].dtype == object:
             le = LabelEncoder()
             df[col] = le.fit_transform(df[col].astype(str))
+
     X = df[features].values
     y = df[target].values
+
     scaler = StandardScaler()
     X = scaler.fit_transform(X)
+
     return X, y
+
 
 def get_classifiers():
     """Return list of classification models"""
@@ -49,6 +55,7 @@ def get_classifiers():
         ("SVM", SVC(probability=True, random_state=42)),
     ]
 
+
 def get_regressors():
     """Return list of regression models"""
     return [
@@ -60,10 +67,12 @@ def get_regressors():
         ("SVM", SVR()),
     ]
 
+
 @app.get("/")
 def root():
     """Health check endpoint"""
     return {"status": "ok", "message": "Prospex ML API is running"}
+
 
 @app.post("/columns")
 async def get_columns(file: UploadFile = File(...)):
@@ -75,66 +84,68 @@ async def get_columns(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(400, f"Parse error: {str(e)}")
 
+
 @app.post("/train")
 async def train(
     file: UploadFile = File(...),
-    target: str = (""),
-    features: str = (""),
-    task: str = ("classification")
+    target: str = Form(""),
+    features: str = Form(""),
+    task: str = Form("classification")
 ):
     """Train ML models on uploaded dataset"""
-    
     # Validate required parameters
     if not target or target.strip() == "":
         raise HTTPException(400, "target is required")
+
     if not features or features.strip() == "":
         raise HTTPException(400, "features is required")
-    
-    # Parse feature list (FIXED: no extra spaces in split)
+
+    # Parse feature list
     feature_list = [f.strip() for f in features.split(",") if f.strip()]
-    
+
     # Load and parse CSV
     try:
         content = await file.read()
         df = pd.read_csv(io.BytesIO(content))
     except Exception as e:
         raise HTTPException(400, f"Could not parse CSV file: {str(e)}")
-    
+
     # Validate target column exists
     if target not in df.columns:
         raise HTTPException(400, f"Column '{target}' not found in dataset")
-    
+
     # Validate all feature columns exist
     missing = [f for f in feature_list if f not in df.columns]
     if missing:
         raise HTTPException(400, f"Columns not found: {missing}")
-    
+
     # Preprocess data
     try:
         X, y = preprocess(df, target, feature_list)
     except Exception as e:
         raise HTTPException(400, f"Preprocessing failed: {str(e)}")
-    
+
     # Split data
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    
-    # Select models based on task type (FIXED: no trailing spaces)
+
+    # Select models based on task type
     models = get_classifiers() if task == "classification" else get_regressors()
+
     results = []
-    
+
     # Train each model
     for name, model in models:
         t0 = time.time()
         try:
             model.fit(X_train, y_train)
             y_pred = model.predict(X_test)
-            elapsed = round(time.time() - t0, 3)  # FIXED: variable name was "el apsed"
-            
+            elapsed = round(time.time() - t0, 3)
+
             if task == "classification":
-                avg = "binary" if len(np.unique(y)) == 2 else "macro"  # FIXED: no trailing spaces
+                avg = "binary" if len(np.unique(y)) == 2 else "macro"
                 result = {
                     "name": name,
-                    "accuracy": round(float(accuracy_score(y_test, y_pred)), 4),
+                    "acc": round(float(accuracy_score(y_test, y_pred)), 4),
                     "precision": round(float(precision_score(y_test, y_pred, average=avg, zero_division=0)), 4),
                     "recall": round(float(recall_score(y_test, y_pred, average=avg, zero_division=0)), 4),
                     "f1": round(float(f1_score(y_test, y_pred, average=avg, zero_division=0)), 4),
@@ -151,16 +162,26 @@ async def train(
                     "time": elapsed
                 }
             results.append(result)
+
         except Exception as e:
             results.append({
                 "name": name,
                 "error": str(e),
-                "accuracy": 0, "precision": 0, "recall": 0, "f1": 0, "time": 0
+                "acc": 0,
+                "precision": 0,
+                "recall": 0,
+                "f1": 0,
+                "time": 0
             })
-    
-    # Return results (FIXED: added "rows" for frontend, no trailing spaces)
+
+    # Return results
     return JSONResponse({
         "task": task,
         "rows": len(df),
         "results": results
     })
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
