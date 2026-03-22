@@ -1,3 +1,4 @@
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -77,9 +78,9 @@ async def get_columns(file: UploadFile = File(...)):
 @app.post("/train")
 async def train(
     file: UploadFile = File(...),
-    target: str = "",
-    features: str = "",
-    task: str = "classification"
+    target: str = (""),
+    features: str = (""),
+    task: str = ("classification")
 ):
     """Train ML models on uploaded dataset"""
     
