@@ -1,9 +1,9 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import pandas as pd
 import numpy as np
-import io, time, traceback
+import io, time, traceback, logging
 
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, RandomForestRegressor, GradientBoostingRegressor
 from sklearn.neural_network import MLPClassifier, MLPRegressor
@@ -17,25 +17,26 @@ from sklearn.metrics import (
     r2_score, mean_absolute_error, mean_squared_error
 )
 
-app = FastAPI(title="ML Model API")
+app = FastAPI(title="Prospex ML API")
 
+# Configure CORS to allow your Netlify domain and local development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_origins=[
+        "http://127.0.0.1:5500",
+        "http://localhost:5500",
+        "https://your-netlify-app.netlify.app",  # Replace with your Netlify URL
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
-@app.options("/train")
-async def options_train():
-    return JSONResponse(content={}, headers={
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "*",
-    })
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# ── HELPERS ────────────────────────────────────────────
+# ── HELPERS ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 def preprocess(df: pd.DataFrame, target: str, features: list):
     df = df.copy()
@@ -57,7 +58,6 @@ def preprocess(df: pd.DataFrame, target: str, features: list):
 
     return X, y
 
-
 def get_classifiers():
     return [
         ("Random Forest",       RandomForestClassifier(n_estimators=100, random_state=42)),
@@ -68,7 +68,6 @@ def get_classifiers():
         ("Support Vector",      SVC(probability=True, random_state=42)),
     ]
 
-
 def get_regressors():
     return [
         ("Random Forest",       RandomForestRegressor(n_estimators=100, random_state=42)),
@@ -78,7 +77,6 @@ def get_regressors():
         ("K-Nearest Neighbors", KNeighborsRegressor(n_neighbors=5)),
         ("Support Vector",      SVR()),
     ]
-
 
 def feature_importance(model, feature_names):
     if hasattr(model, "feature_importances_"):
@@ -92,7 +90,6 @@ def feature_importance(model, feature_names):
 
     return {name: round(float(s), 4) for name, s in zip(feature_names, scores)}
 
-
 def correlation_matrix(df, features):
     sub = df[features].select_dtypes(include=[np.number])
     corr = sub.corr().round(3)
@@ -101,44 +98,52 @@ def correlation_matrix(df, features):
         "matrix": corr.values.tolist()
     }
 
-
-# ── ROUTES ─────────────────────────────────────────────
+# ── ROUTES ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 @app.get("/")
 def root():
-    return {"status": "ok", "message": "ML Model API is running"}
-
+    return {"status": "ok", "message": "Prospex ML API is running"}
 
 @app.post("/train")
 async def train(
+    request: Request,
     file: UploadFile = File(...),
     target: str = "",
     features: str = "",
     task: str = "classification"
 ):
+    logger.info(f"Received request from {request.client.host}")
     if not target:
-        raise HTTPException(400, "target is required")
+        logger.error("Target is required")
+        raise HTTPException(400, "Target is required")
     if not features:
-        raise HTTPException(400, "features is required")
+        logger.error("Features are required")
+        raise HTTPException(400, "Features are required")
 
     feature_list = [f.strip() for f in features.split(",") if f.strip()]
 
     try:
         content = await file.read()
         df = pd.read_csv(io.BytesIO(content))
-    except Exception:
-        raise HTTPException(400, "Could not parse CSV file")
+        logger.info(f"Data loaded: {len(df)} rows, {len(df.columns)} columns")
+    except Exception as e:
+        logger.error(f"Failed to parse CSV: {str(e)}")
+        raise HTTPException(400, f"Could not parse CSV file: {str(e)}")
 
     if target not in df.columns:
+        logger.error(f"Target column '{target}' not found")
         raise HTTPException(400, f"Column '{target}' not found in CSV")
 
     missing = [f for f in feature_list if f not in df.columns]
     if missing:
+        logger.error(f"Columns not found: {missing}")
         raise HTTPException(400, f"Columns not found: {missing}")
 
     try:
         X, y = preprocess(df, target, feature_list)
+        logger.info("Data preprocessing completed")
     except Exception as e:
+        logger.error(f"Preprocessing failed: {str(e)}")
         raise HTTPException(400, f"Preprocessing failed: {str(e)}")
 
     X_train, X_test, y_train, y_test = train_test_split(
@@ -148,12 +153,14 @@ async def train(
     models = get_classifiers() if task == "classification" else get_regressors()
     results = []
 
+    total_time = 0
     for name, model in models:
         t0 = time.time()
         try:
             model.fit(X_train, y_train)
             y_pred = model.predict(X_test)
             elapsed = round(time.time() - t0, 3)
+            total_time += elapsed
 
             if task == "classification":
                 avg = "binary" if len(np.unique(y)) == 2 else "macro"
@@ -170,7 +177,7 @@ async def train(
                 r2 = float(r2_score(y_test, y_pred))
                 result = {
                     "name": name,
-                    "accuracy":  round(max(0, r2), 4),  # R² as accuracy proxy
+                    "accuracy":  round(max(0, r2), 4),
                     "precision": round(float(mean_absolute_error(y_test, y_pred)), 4),
                     "recall":    round(float(mean_squared_error(y_test, y_pred)), 4),
                     "f1":        round(max(0, r2), 4),
@@ -179,8 +186,10 @@ async def train(
                 }
 
             results.append(result)
+            logger.info(f"Model {name} trained successfully")
 
         except Exception as e:
+            logger.error(f"Model {name} failed: {str(e)}")
             results.append({
                 "name": name,
                 "error": str(e),
@@ -195,17 +204,18 @@ async def train(
             if numeric_df[col].dtype == object:
                 numeric_df[col] = LabelEncoder().fit_transform(numeric_df[col].astype(str))
         corr = correlation_matrix(numeric_df, feature_list)
-    except Exception:
-        pass
+        logger.info("Correlation matrix generated")
+    except Exception as e:
+        logger.error(f"Failed to generate correlation matrix: {str(e)}")
 
     return JSONResponse({
         "task": task,
         "rows": len(df),
         "columns": list(df.columns),
+        "total_time": total_time,
         "results": results,
         "correlation": corr
     })
-
 
 @app.get("/columns")
 async def get_columns(file: UploadFile = File(...)):
