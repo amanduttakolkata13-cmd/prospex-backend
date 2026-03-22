@@ -154,7 +154,7 @@ async def train(
             results.append({
                 "name": name,
                 "error": str(e),
-                "acc": 0, "precision": 0, "recall": 0, "f1": 0, "time": 0
+                "accuracy": 0, "precision": 0, "recall": 0, "f1": 0, "time": 0
             })
     
     # Return results (FIXED: added "rows" for frontend, no trailing spaces)
