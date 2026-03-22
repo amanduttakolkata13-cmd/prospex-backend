@@ -22,12 +22,7 @@ app = FastAPI(title="Prospex ML API")
 # Configure CORS to allow your Netlify domain and local development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://127.0.0.1:5500",
-        "http://localhost:5500",
-        "https://your-netlify-app.netlify.app",  # Replace with your Netlify URL
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -149,10 +144,8 @@ async def train(
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42
     )
-
     models = get_classifiers() if task == "classification" else get_regressors()
     results = []
-
     total_time = 0
     for name, model in models:
         t0 = time.time()
@@ -166,7 +159,7 @@ async def train(
                 avg = "binary" if len(np.unique(y)) == 2 else "macro"
                 result = {
                     "name": name,
-                    "accuracy":  round(float(accuracy_score(y_test, y_pred)), 4),
+                    "acc":  round(float(accuracy_score(y_test, y_pred)), 4),
                     "precision": round(float(precision_score(y_test, y_pred, average=avg, zero_division=0)), 4),
                     "recall":    round(float(recall_score(y_test, y_pred, average=avg, zero_division=0)), 4),
                     "f1":        round(float(f1_score(y_test, y_pred, average=avg, zero_division=0)), 4),
@@ -177,7 +170,7 @@ async def train(
                 r2 = float(r2_score(y_test, y_pred))
                 result = {
                     "name": name,
-                    "accuracy":  round(max(0, r2), 4),
+                    "acc":  round(max(0, r2), 4),
                     "precision": round(float(mean_absolute_error(y_test, y_pred)), 4),
                     "recall":    round(float(mean_squared_error(y_test, y_pred)), 4),
                     "f1":        round(max(0, r2), 4),
@@ -193,7 +186,7 @@ async def train(
             results.append({
                 "name": name,
                 "error": str(e),
-                "accuracy": 0, "precision": 0, "recall": 0, "f1": 0, "time": 0,
+                "acc": 0, "precision": 0, "recall": 0, "f1": 0, "time": 0,
                 "importance": {}
             })
 
